@@ -8,6 +8,19 @@
 
 #define WRITE_MAX 1024
 
+static bool output_on_screen = true;
+
+void syscall_set_output(bool on) { output_on_screen = on; }
+bool syscall_output(void)        { return output_on_screen; }
+
+static void out(const char *s, size_t n, uint8_t color)
+{
+    if (output_on_screen)
+        console_write(s, n, color);
+    else
+        console_write_serial(s, n);
+}
+
 /* Nunca confie num ponteiro vindo do processo: confere se o buffer esta
  * inteiro na area de usuario E mapeado na tabela de paginas dele. */
 static bool user_buffer_ok(const struct process *p, uint64_t addr, uint64_t len)
@@ -30,7 +43,7 @@ static void write_from(struct process *p, const char *s, size_t n)
     while (i < n) {
         if (p->line_start) {
             int k = ksnprintf(prefix, sizeof prefix, "[%d:%s] ", p->pid, p->name);
-            console_write(prefix, (size_t)k, p->color);
+            out(prefix, (size_t)k, p->color);
             p->line_start = false;
         }
         size_t j = i;
@@ -40,7 +53,7 @@ static void write_from(struct process *p, const char *s, size_t n)
             j++;                        /* inclui o '\n' */
             p->line_start = true;
         }
-        console_write(s + i, j - i, p->color);
+        out(s + i, j - i, p->color);
         i = j;
     }
 }

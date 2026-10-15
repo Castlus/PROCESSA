@@ -16,4 +16,8 @@ enum {
 
 void syscall_dispatch(struct regs *r);
 
+/* Saida dos processos na tela (o log serial sempre recebe tudo). */
+void syscall_set_output(bool on);
+bool syscall_output(void);
+
 #endif

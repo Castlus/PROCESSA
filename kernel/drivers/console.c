@@ -141,6 +141,12 @@ void console_write(const char *s, size_t n, uint8_t color)
     }
 }
 
+void console_write_serial(const char *s, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+        serial_putc(s[i]);
+}
+
 void console_clear_log(void)
 {
     for (int r = LOG_TOP; r <= LOG_BOTTOM; r++)

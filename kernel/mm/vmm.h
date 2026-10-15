@@ -24,4 +24,10 @@ bool vmm_copy_to(uint64_t pml4, uint64_t va, const void *src, size_t n);
 uint64_t vmm_translate(uint64_t pml4, uint64_t va); /* 0 = nao mapeado */
 size_t vmm_count_user_pages(uint64_t pml4);
 
+/* Faixas contiguas de enderecos virtuais mapeados (para o comando info). */
+struct vmm_range {
+    uint64_t start, end;
+};
+size_t vmm_user_ranges(uint64_t pml4, struct vmm_range *out, size_t max);
+
 #endif

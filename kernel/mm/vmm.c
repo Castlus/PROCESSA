@@ -180,6 +180,38 @@ size_t vmm_count_user_pages(uint64_t pml4)
     return walk_user(pml4, false);
 }
 
+size_t vmm_user_ranges(uint64_t pml4, struct vmm_range *out, size_t max)
+{
+    uint64_t *l4 = (uint64_t *)pml4;
+    size_t n = 0;
+
+    if (!(l4[0] & PTE_P))
+        return 0;
+    uint64_t *pdpt = (uint64_t *)(l4[0] & PTE_ADDR);
+    for (uint64_t i = 1; i < 512; i++) {         /* i = 0 e o kernel */
+        if (!(pdpt[i] & PTE_P))
+            continue;
+        uint64_t *pd = (uint64_t *)(pdpt[i] & PTE_ADDR);
+        for (uint64_t j = 0; j < 512; j++) {
+            if (!(pd[j] & PTE_P))
+                continue;
+            uint64_t *pt = (uint64_t *)(pd[j] & PTE_ADDR);
+            for (uint64_t k = 0; k < 512; k++) {
+                if (!(pt[k] & PTE_P))
+                    continue;
+                uint64_t va = (i << 30) | (j << 21) | (k << 12);
+                if (n && out[n - 1].end == va)
+                    out[n - 1].end += PAGE_SIZE;     /* continua a faixa anterior */
+                else if (n < max)
+                    out[n++] = (struct vmm_range){ va, va + PAGE_SIZE };
+                else
+                    return n;
+            }
+        }
+    }
+    return n;
+}
+
 void vmm_destroy_space(uint64_t pml4)
 {
     if (!pml4 || pml4 == vmm_kernel_space())
