@@ -33,7 +33,7 @@ Também tem:
 ### Opção A: WSL (Ubuntu)
 
 ```bash
-sudo apt install build-essential nasm python3 qemu-system-x86
+sudo apt install build-essential nasm python3 qemu-system-x86 gcc-mingw-w64-x86-64 ovmf
 make run        # compila e abre o QEMU
 ```
 
@@ -47,22 +47,38 @@ winget install SoftwareFreedomConservancy.QEMU       # uma vez só
 
 Outros alvos: `make test` roda 20 s sem janela e mostra o log serial; `make clean` apaga `build/`.
 
-### Opção C: num PC de verdade, por pendrive
+### Opção C: num PC de verdade, por pendrive (UEFI)
 
-A mesma imagem dá boot direto num computador, sem sistema operacional nenhum por baixo.
+O PROCESSA dá boot direto num computador, sem sistema operacional nenhum por baixo. Este é o caminho para PCs atuais, que só têm UEFI.
 
-1. **Grave `build\processa.img` no pendrive** com o [Rufus](https://rufus.ie) (ele detecta a imagem e grava em modo DD) ou com o balenaEtcher.
-   - **Isso apaga tudo o que estiver no pendrive.**
-   - Depois da gravação, o Windows pode pedir para "formatar o disco": **cancele**.
-2. **Na configuração da BIOS do PC, habilite o boot "Legacy" / "CSM".** Normalmente é preciso desligar o Secure Boot antes. O setor de boot do PROCESSA é do tipo BIOS (MBR), não UEFI.
-3. **Ligue pelo menu de boot** (F12, F9, F8 ou Esc, conforme a marca) e escolha o pendrive na entrada **sem** "UEFI:" no nome.
+1. **Formate o pendrive em FAT32.**
+   - Até 32 GB: pelo próprio Windows (botão direito → Formatar → FAT32).
+   - Maiores: use o [Rufus](https://rufus.ie) com "Seleção de boot: Não inicializável" e "Sistema de arquivos: FAT32".
+2. **Copie o PROCESSA:** `.\pendrive.ps1 E:` (troque `E:` pela letra do pendrive).
+   - O script compila e copia o conteúdo de `build\usb\` para o pendrive.
+   - Ele só copia arquivos e se recusa a escrever em algo que não seja um pendrive em FAT32.
+3. **Na configuração do firmware do PC, desligue o Secure Boot.** O nosso carregador não é assinado pela Microsoft.
+4. **Ligue pelo menu de boot** (F12, F9, F8 ou Esc, conforme a marca) e escolha o pendrive.
 
-**Como os programas são lidos do pendrive:**
-- O kernel não tem driver USB (um controlador xHCI + armazenamento USB do zero é um projeto à parte). Por isso o setor de boot pede à BIOS, que sabe ler o pendrive, para copiar a área de arquivos (PROCFS) para a memória em `0x30000`.
-- O kernel procura um disco ATA. Se não encontrar, ou se o PROCFS não estiver nele, usa essa cópia. O log do boot mostra qual fonte foi usada.
-- Cabem até 384 KiB de arquivos.
+**O que vai no pendrive:**
 
-**Se o chip do timer estiver desligado:** alguns chipsets modernos desligam o PIT. Nesse caso o kernel avisa em vermelho no boot, porque sem ele os processos não se alternam.
+| Caminho | Conteúdo |
+|---|---|
+| `EFI\BOOT\BOOTX64.EFI` | o carregador UEFI ([boot/uefi.c](boot/uefi.c)), que o firmware procura por esse nome |
+| `PROCESSA\KERNEL.BIN` | o kernel |
+| `PROCESSA\INICIO\` | programas que iniciam no boot |
+| `PROCESSA\PROGRAMAS\` | outros programas: é só **arrastar arquivos para cá** no Windows e rodar com `run <nome>` |
+
+**Como funciona o boot UEFI:**
+- **Carregamento:** o firmware UEFI sabe ler FAT32 e executa o `BOOTX64.EFI`. É um executável PE32+ escrito do zero, sem gnu-efi/EDK2. Ele lê o kernel e os programas pelo protocolo de arquivos do firmware e monta com eles um disco PROCFS na memória. Depois pega a tela gráfica, o mapa de memória e a frequência do TSC, chama `ExitBootServices` e salta para o kernel.
+- **Vídeo:** em UEFI não existe o modo texto da VGA. O kernel desenha a mesma grade de 80x25 pixel a pixel na tela gráfica, com a fonte 8x16 da VGA ([kernel/drivers/font8x16.c](kernel/drivers/font8x16.c), extraída da VGA BIOS do QEMU por [tools/extrair_fonte.py](tools/extrair_fonte.py)).
+- **Timer:** sem o modo Legacy, muitos PCs desligam o chip PIT. O kernel usa o **timer do APIC local** da CPU ([kernel/drivers/lapic.c](kernel/drivers/lapic.c)), calibrado contra o TSC. Ele continua sendo um driver de timer gerando a interrupção que troca os processos.
+- **Teclado:** é lido a cada tick do timer (polling), porque a IRQ1 do PIC antigo pode não chegar à CPU.
+- **Aviso de timer:** se nenhum timer gerar interrupções, o kernel avisa em vermelho no boot.
+
+**Testar no QEMU antes:** `make run-uefi` (WSL) dá boot com firmware UEFI (OVMF), usando a pasta `build/usb` como se fosse o pendrive.
+
+**PCs antigos, só com BIOS/Legacy:** grave `build\processa.img` no pendrive com o Rufus (modo DD), o que apaga o pendrive, e dê boot pela entrada sem "UEFI:". Nesse caminho, o setor de boot pede à BIOS para copiar os arquivos para a memória.
 
 ### Escrevendo um programa novo
 
@@ -170,10 +186,12 @@ a cada IRQ0 do timer (10 ms):
 ## Estrutura
 
 ```
-boot/boot.asm          setor de boot: modo real -> modo longo, carrega o kernel
+boot/boot.asm          setor de boot (BIOS): modo real -> modo longo, carrega o kernel
+boot/uefi.c            carregador UEFI (BOOTX64.EFI): lê kernel e programas do pendrive
+boot/bootinfo.h        o que o carregador UEFI entrega ao kernel
 kernel/
   arch/                entrada 64 bits, GDT/TSS, IDT, stubs de interrupção (troca de contexto)
-  drivers/             PIT (timer), PIC, ATA (disco), teclado, VGA, serial
+  drivers/             timer (PIT e APIC), PIC, ATA (disco), teclado, vídeo (texto e gráfico), serial
   mm/                  memória física (bitmap) e virtual (paginação de 4 níveis)
   fs/                  PROCFS (diretório simples no disco)
   loader/              ELF64, PE32+, Mach-O 64, binário puro
@@ -182,7 +200,8 @@ kernel/
   ui.c shell.c         painel e linha de comando
   kernel.c             kmain
 user/                  programas de exemplo + crt0 + mini biblioteca própria
-tools/mkdisk.py        monta a imagem de disco
+tools/mkdisk.py        monta a imagem de disco (boot BIOS)
+pendrive.ps1           copia o PROCESSA para um pendrive FAT32 (boot UEFI)
 ```
 
 ## Limitações conhecidas
