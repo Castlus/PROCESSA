@@ -59,6 +59,8 @@ bool ata_init(void)
     outb(ATA_CONTROL, 0x02);            /* nIEN: sem IRQ, usamos polling */
     outb(ATA_DRIVE, 0xA0);              /* seleciona o disco mestre */
     delay400ns();
+    if (inb(ATA_STATUS) == 0xFF)        /* barramento "flutuando": nao ha IDE */
+        return false;                   /* (notebooks atuais: SATA AHCI/NVMe) */
     outb(ATA_COUNT, 0);
     outb(ATA_LBA0, 0);
     outb(ATA_LBA1, 0);

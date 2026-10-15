@@ -8,6 +8,13 @@ Layout da imagem (setores de 512 bytes):
   LBA 2048 .. 2055  diretorio do PROCFS: cabecalho + ate 63 entradas
   LBA 2056 ..       conteudo dos arquivos, cada um comecando num setor novo
 
+No setor de boot este script tambem preenche:
+  0x1B0  quantos blocos de 64 setores do PROCFS a BIOS deve copiar para a
+         RAM (usado ao bootar por pendrive, onde o kernel nao tem driver)
+  0x1B8  assinatura do disco
+  0x1BE  tabela de particoes com uma particao ativa: sem ela muitas BIOS
+         nao dao boot por pendrive (ou o tratam como disquete)
+
 Uso:
   mkdisk.py saida.img boot.bin kernel.bin [--auto] arquivo [[--auto] arquivo ...]
 
@@ -25,6 +32,11 @@ DIR_SECTORS = 8
 ENTRY_SIZE = 64
 MAX_FILES = DIR_SECTORS * SECTOR // ENTRY_SIZE - 1
 FLAG_AUTORUN = 1
+
+BOOT_FS_CHUNKS = 0x1B0          # deve bater com fs_chunks em boot/boot.asm
+CHUNK_SECTORS = 64
+RAMDISK_MAX_CHUNKS = 12         # 0x30000-0x90000 = 384 KiB copiados pela BIOS
+PARTITION_TYPE = 0xDA           # "dados, sem sistema de arquivos"
 
 
 def die(msg):
@@ -91,6 +103,25 @@ def main(argv):
     struct.pack_into("<8sI52x", directory, 0, b"PROCFS01", len(files))
     image += directory + data
     image += b"\0" * (-len(image) % (1024 * 1024))   # arredonda para 1 MiB
+
+    # quanto do PROCFS a BIOS copia para a RAM no boot (boot por pendrive)
+    fs_sectors = DIR_SECTORS + len(data) // SECTOR
+    chunks = -(-fs_sectors // CHUNK_SECTORS)
+    if chunks > RAMDISK_MAX_CHUNKS:
+        print(f"  aviso: arquivos ocupam {fs_sectors // 2} KiB; num boot por pendrive so os "
+              f"primeiros {RAMDISK_MAX_CHUNKS * CHUNK_SECTORS // 2} KiB ficam disponiveis")
+        chunks = RAMDISK_MAX_CHUNKS
+    image[BOOT_FS_CHUNKS] = chunks
+
+    # assinatura do disco + uma particao ativa cobrindo o resto da imagem
+    total_sectors = len(image) // SECTOR
+    image[0x1B8:0x1BC] = b"PROC"
+    struct.pack_into("<B3sB3sII", image, 0x1BE,
+                     0x80,                      # ativa (inicializavel)
+                     bytes([0x00, 0x02, 0x00]), # CHS do inicio (LBA 1)
+                     PARTITION_TYPE,
+                     bytes([0xFE, 0xFF, 0xFF]), # CHS do fim: "use o LBA"
+                     1, total_sectors - 1)
 
     with open(out, "wb") as f:
         f.write(image)

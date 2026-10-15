@@ -19,7 +19,8 @@ struct fs_entry {
     uint8_t reserved[12];
 } __attribute__((packed));
 
-bool fs_init(void);
+bool fs_init(bool have_ata);           /* tenta o disco ATA, depois a copia da BIOS */
+const char *fs_source(void);
 int fs_count(void);
 const struct fs_entry *fs_entry_at(int i);
 const struct fs_entry *fs_find(const char *name);
