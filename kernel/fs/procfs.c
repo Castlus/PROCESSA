@@ -1,8 +1,9 @@
 /* PROCFS: le o diretorio e os arquivos de uma de duas fontes:
  *   - o disco ATA, pelo driver do kernel (QEMU, PCs com IDE);
- *   - a copia que o setor de boot pediu a BIOS para fazer na RAM. Num
+ *   - uma copia na RAM feita no boot: pela BIOS (setor de boot) ou montada
+ *     pelo carregador UEFI a partir das pastas do pendrive FAT32. Num
  *     notebook bootando por pendrive USB nao existe disco ATA, e escrever
- *     um driver USB do zero e outro projeto; a BIOS ja sabe ler o pendrive. */
+ *     um driver USB do zero e outro projeto; o firmware ja sabe ler o pendrive. */
 #include "fs/procfs.h"
 #include "boot.h"
 #include "drivers/ata.h"
@@ -59,11 +60,10 @@ bool fs_init(bool have_ata)
             return true;
     }
 
-    const struct bootinfo *b = bootinfo();
-    if (b && b->ramdisk_sectors >= FS_DIR_SECTORS) {
+    if (boot.ramdisk && boot.ramdisk_sectors >= FS_DIR_SECTORS) {
         source = SRC_RAM;
-        ram = (const uint8_t *)(uintptr_t)b->ramdisk_addr;
-        ram_sectors = b->ramdisk_sectors;
+        ram = boot.ramdisk;
+        ram_sectors = boot.ramdisk_sectors;
         if (mount())
             return true;
     }
@@ -76,7 +76,8 @@ const char *fs_source(void)
 {
     switch (source) {
     case SRC_ATA: return "disco ATA, pelo driver do kernel";
-    case SRC_RAM: return "cópia do disco feita pela BIOS no boot";
+    case SRC_RAM: return boot.kind == BOOT_UEFI ? "pendrive, lido pelo firmware UEFI no boot"
+                                                : "cópia do disco feita pela BIOS no boot";
     default:      return "nenhum";
     }
 }

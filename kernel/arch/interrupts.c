@@ -2,6 +2,7 @@
 #include "arch/cpu.h"
 #include "arch/irq.h"
 #include "drivers/console.h"
+#include "drivers/lapic.h"
 #include "lib/printf.h"
 #include "proc/process.h"
 #include "proc/sched.h"
@@ -62,6 +63,11 @@ uint64_t isr_handler(struct regs *r)
         irq_dispatch((int)(r->vector - 32), r);
     else if (r->vector == SYSCALL_VECTOR)
         syscall_dispatch(r);
+    else if (r->vector == LAPIC_TIMER_VECTOR)
+        lapic_timer_irq();
+    else if (r->vector == OTHER_VECTOR)
+        lapic_eoi();            /* inesperada: so confirma, para nao travar o APIC */
+    /* LAPIC_SPURIOUS_VECTOR: interrupcao "fantasma", nao precisa de nada */
 
     /* 3. devolve o contexto a retomar: o mesmo processo ou outro,
      *    se o escalonador decidiu trocar. */

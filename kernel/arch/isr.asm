@@ -84,6 +84,20 @@ ISR_NOERR 47
 global isr_stub_128
 ISR_NOERR 128
 
+; ---- 64: timer do APIC (boot UEFI); 255: interrupcao espuria do APIC ----
+global isr_stub_64
+global isr_stub_255
+ISR_NOERR 64
+ISR_NOERR 255
+
+; ---- qualquer outro vetor: interrupcao que o kernel nao esperava (um
+;      dispositivo que o firmware deixou ligado). Registrada como 0xFE. ----
+global isr_stub_other
+isr_stub_other:
+    push qword 0
+    push qword 0xFE
+    jmp isr_common
+
 isr_common:
     push rax
     push rbx

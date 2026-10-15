@@ -17,6 +17,11 @@
 
 void vmm_init(void);
 uint64_t vmm_kernel_space(void);
+
+/* Mapeia registradores/memoria de um dispositivo (tela grafica, APIC) que
+ * pode estar acima de 1 GiB, numa janela do kernel visivel em todos os
+ * espacos de enderecamento. Devolve o endereco virtual. */
+void *vmm_map_mmio(uint64_t phys, uint64_t size, bool uncached);
 uint64_t vmm_create_space(void);                    /* devolve o CR3 novo */
 void vmm_destroy_space(uint64_t pml4);
 bool vmm_alloc_range(uint64_t pml4, uint64_t va, uint64_t size);

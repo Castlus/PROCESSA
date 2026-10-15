@@ -22,7 +22,10 @@ struct regs {
 #define USER_CS   (0x20 | 3)
 #define TSS_SEL   0x28
 
-#define SYSCALL_VECTOR 0x80
+#define SYSCALL_VECTOR        0x80
+#define LAPIC_TIMER_VECTOR    0x40  /* timer do APIC (boot UEFI)          */
+#define OTHER_VECTOR          0xFE  /* qualquer interrupcao nao esperada   */
+#define LAPIC_SPURIOUS_VECTOR 0xFF  /* interrupcao "fantasma" do APIC      */
 #define RFLAGS_IF      0x200   /* bit "interrupcoes habilitadas" */
 
 static inline uint64_t read_cr2(void)
@@ -43,6 +46,26 @@ static inline uint64_t read_cr3(void)
 static inline void write_cr3(uint64_t v)
 {
     __asm__ volatile ("mov %0, %%cr3" : : "r"(v) : "memory");
+}
+
+static inline uint64_t rdmsr(uint32_t msr)
+{
+    uint32_t lo, hi;
+    __asm__ volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
+    return ((uint64_t)hi << 32) | lo;
+}
+
+static inline void wrmsr(uint32_t msr, uint64_t v)
+{
+    __asm__ volatile ("wrmsr" : : "c"(msr), "a"((uint32_t)v), "d"((uint32_t)(v >> 32)));
+}
+
+/* Contador de ciclos da CPU (Time Stamp Counter). */
+static inline uint64_t rdtsc(void)
+{
+    uint32_t lo, hi;
+    __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi << 32) | lo;
 }
 
 static inline __attribute__((noreturn)) void cpu_halt_forever(void)

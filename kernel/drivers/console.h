@@ -34,7 +34,8 @@ enum vga_color {
 #define COLOR_INPUT   VGA_COLOR(VGA_WHITE, VGA_BLACK)
 #define COLOR_TRACE   VGA_COLOR(VGA_WHITE, VGA_BLUE)
 
-void console_init(void);
+void console_init(void);                /* depois de vmm_init (tela grafica) */
+bool console_graphic(void);             /* true: desenhando na tela grafica UEFI */
 void console_write(const char *s, size_t n, uint8_t color);   /* area de log */
 void console_write_serial(const char *s, size_t n);           /* so na serial */
 void console_clear_log(void);

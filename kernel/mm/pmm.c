@@ -14,15 +14,43 @@
 
 static uint8_t bitmap[NFRAMES / 8];
 static size_t used;
+static size_t total = NFRAMES;
 
 static bool frame_used(size_t i)  { return bitmap[i / 8] & (1 << (i % 8)); }
 static void frame_set(size_t i)   { bitmap[i / 8] |= (uint8_t)(1 << (i % 8)); }
 static void frame_clear(size_t i) { bitmap[i / 8] &= (uint8_t)~(1 << (i % 8)); }
 
+/* Boot por BIOS: 2-64 MiB e memoria livre em qualquer PC. */
 void pmm_init(void)
 {
     memset(bitmap, 0, sizeof bitmap);
     used = 0;
+    total = NFRAMES;
+}
+
+/* Boot por UEFI: so as faixas que o firmware informou como livres. O que
+ * estiver fora delas (firmware, tabelas ACPI, o proprio kernel, os
+ * programas carregados) fica marcado como ocupado para sempre. */
+void pmm_init_ranges(const struct uefi_mem_range *ranges, size_t count)
+{
+    memset(bitmap, 0xFF, sizeof bitmap);
+    used = 0;
+    total = 0;
+    for (size_t r = 0; r < count; r++) {
+        uint64_t start = ALIGN_UP(ranges[r].start, PAGE_SIZE);
+        uint64_t end = ranges[r].start + ranges[r].pages * PAGE_SIZE;
+        if (start < PMM_START)
+            start = PMM_START;
+        if (end > PMM_END)
+            end = PMM_END;
+        for (uint64_t a = start; a + PAGE_SIZE <= end; a += PAGE_SIZE) {
+            size_t i = (a - PMM_START) / PAGE_SIZE;
+            if (frame_used(i)) {
+                frame_clear(i);
+                total++;
+            }
+        }
+    }
 }
 
 uint64_t pmm_alloc_pages(size_t n)
@@ -62,4 +90,4 @@ void pmm_free_pages(uint64_t addr, size_t n)
 uint64_t pmm_alloc_page(void)         { return pmm_alloc_pages(1); }
 void pmm_free_page(uint64_t addr)     { pmm_free_pages(addr, 1); }
 size_t pmm_used_pages(void)           { return used; }
-size_t pmm_total_pages(void)          { return NFRAMES; }
+size_t pmm_total_pages(void)          { return total; }

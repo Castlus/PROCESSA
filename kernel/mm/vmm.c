@@ -16,8 +16,14 @@
 #define PTE_P    0x001UL    /* presente   */
 #define PTE_W    0x002UL    /* gravavel   */
 #define PTE_U    0x004UL    /* usuario (anel 3 pode acessar) */
+#define PTE_PWT  0x008UL    /* write-through   } juntos: sem cache, para */
+#define PTE_PCD  0x010UL    /* cache desligado } registradores de dispositivo */
 #define PTE_PS   0x080UL    /* pagina grande (2 MiB) */
 #define PTE_ADDR 0x000FFFFFFFFFF000UL
+
+#define MB2        0x200000UL
+#define MMIO_BASE  0x8000000000UL   /* PML4[1]: janela de dispositivos (512 GiB) */
+#define MMIO_PDS   4                /* ate 4 GiB de dispositivos mapeados */
 
 #define IDX4(va) (((va) >> 39) & 511)
 #define IDX3(va) (((va) >> 30) & 511)
@@ -27,6 +33,9 @@
 static uint64_t kernel_pml4[512] __attribute__((aligned(4096)));
 static uint64_t kernel_pdpt[512] __attribute__((aligned(4096)));
 static uint64_t kernel_pd[512]   __attribute__((aligned(4096)));
+static uint64_t mmio_pdpt[512]   __attribute__((aligned(4096)));
+static uint64_t mmio_pd[MMIO_PDS][512] __attribute__((aligned(4096)));
+static uint64_t mmio_next = MMIO_BASE;
 
 static bool is_user(uint64_t va)
 {
@@ -40,7 +49,31 @@ void vmm_init(void)
         kernel_pd[i] = (i << 21) | PTE_P | PTE_W | PTE_PS;
     kernel_pdpt[0] = (uint64_t)kernel_pd | PTE_P | PTE_W;
     kernel_pml4[0] = (uint64_t)kernel_pdpt | PTE_P | PTE_W;
+
+    /* janela de dispositivos: preenchida por vmm_map_mmio() */
+    for (int i = 0; i < MMIO_PDS; i++)
+        mmio_pdpt[i] = (uint64_t)mmio_pd[i] | PTE_P | PTE_W;
+    kernel_pml4[1] = (uint64_t)mmio_pdpt | PTE_P | PTE_W;
+
     write_cr3((uint64_t)kernel_pml4);
+}
+
+void *vmm_map_mmio(uint64_t phys, uint64_t size, bool uncached)
+{
+    uint64_t start = ALIGN_DOWN(phys, MB2);
+    uint64_t end = ALIGN_UP(phys + size, MB2);
+    uint64_t virt = mmio_next + (phys - start);
+
+    for (uint64_t p = start; p < end; p += MB2) {
+        uint64_t idx = (mmio_next - MMIO_BASE) / MB2;
+        if (idx >= MMIO_PDS * 512)
+            return NULL;
+        mmio_pd[idx / 512][idx % 512] = p | PTE_P | PTE_W | PTE_PS |
+                                        (uncached ? PTE_PCD | PTE_PWT : 0);
+        mmio_next += MB2;
+    }
+    write_cr3(read_cr3());              /* descarta traducoes antigas (TLB) */
+    return (void *)virt;
 }
 
 uint64_t vmm_kernel_space(void)
@@ -59,6 +92,7 @@ uint64_t vmm_create_space(void)
     }
     ((uint64_t *)pml4)[0] = pdpt | PTE_P | PTE_W | PTE_U;
     ((uint64_t *)pdpt)[0] = (uint64_t)kernel_pd | PTE_P | PTE_W;   /* kernel, sem PTE_U */
+    ((uint64_t *)pml4)[1] = kernel_pml4[1];                        /* dispositivos, sem PTE_U */
     return pml4;
 }
 

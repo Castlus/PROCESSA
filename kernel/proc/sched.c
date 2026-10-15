@@ -20,7 +20,7 @@
 #include "proc/sched.h"
 #include "arch/gdt.h"
 #include "drivers/console.h"
-#include "drivers/pit.h"
+#include "drivers/timer.h"
 #include "lib/printf.h"
 
 static struct process *current;
@@ -58,7 +58,7 @@ static bool any_ready(void)
 
 void sched_tick(void)
 {
-    uint64_t dt = 1000000UL / pit_frequency();
+    uint64_t dt = 1000000UL / timer_frequency();
     uptime_us += dt;
     current->cpu_us += dt;
 
@@ -100,7 +100,7 @@ static const char *switch_reason(const struct process *prev)
 static void trace_switch(const struct process *prev, const struct process *next, const char *why)
 {
     kprintf_color(COLOR_TRACE, "[troca %lu | tick %lu] %d:%.14s -> %d:%.14s (%s)\n",
-                  total_switches, pit_ticks(), prev->pid, prev->name, next->pid, next->name, why);
+                  total_switches, timer_ticks(), prev->pid, prev->name, next->pid, next->name, why);
     if (prev->state == P_DEAD)
         kprintf_color(COLOR_TRACE, "   %d liberado | %d retoma em rip=%lx, CR3=%08lx\n",
                       prev->pid, next->pid, next->ctx->rip, next->cr3);

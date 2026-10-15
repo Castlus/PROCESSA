@@ -25,6 +25,9 @@ static struct idt_entry idt[256] __attribute__((aligned(16)));
 
 extern uint64_t isr_stub_table[48];     /* isr.asm */
 extern void isr_stub_128(void);
+extern void isr_stub_64(void);
+extern void isr_stub_255(void);
+extern void isr_stub_other(void);
 
 static void set_gate(int vec, uint64_t handler, uint8_t attr)
 {
@@ -39,8 +42,12 @@ static void set_gate(int vec, uint64_t handler, uint8_t attr)
 
 void idt_init(void)
 {
+    for (int i = 48; i < 256; i++)              /* nenhum vetor fica sem tratador */
+        set_gate(i, (uint64_t)isr_stub_other, GATE_KERNEL);
     for (int i = 0; i < 48; i++)
         set_gate(i, isr_stub_table[i], GATE_KERNEL);
+    set_gate(LAPIC_TIMER_VECTOR, (uint64_t)isr_stub_64, GATE_KERNEL);
+    set_gate(LAPIC_SPURIOUS_VECTOR, (uint64_t)isr_stub_255, GATE_KERNEL);
     set_gate(SYSCALL_VECTOR, (uint64_t)isr_stub_128, GATE_USER);
 
     struct idtr idtr = { sizeof idt - 1, (uint64_t)idt };

@@ -2,7 +2,7 @@
  * E redesenhado pela interrupcao do timer. */
 #include "ui.h"
 #include "drivers/console.h"
-#include "drivers/pit.h"
+#include "drivers/timer.h"
 #include "proc/process.h"
 #include "proc/sched.h"
 #include "proc/syscall.h"
@@ -24,8 +24,8 @@ static void draw_status(void)
     struct process *p = sched_current();
     uint64_t ms = sched_uptime_ms();
     ksnprintf(buf, sizeof buf,
-              " PROCESSA | %lu.%lus | PIT %uHz | quantum %u | trocas %lu | CPU: %d %.12s",
-              ms / 1000, (ms / 100) % 10, pit_frequency(), sched_quantum(),
+              " PROCESSA | %lu.%lus | %s %uHz | quantum %u | trocas %lu | CPU: %d %.12s",
+              ms / 1000, (ms / 100) % 10, timer_name(), timer_frequency(), sched_quantum(),
               sched_switches(), p->pid, p->name);
     vga_write_at(STATUS_ROW, 0, buf, COLOR_STATUS, VGA_COLS);
 }
@@ -41,9 +41,9 @@ static void draw_timer(void)
 
     if (left)
         ksnprintf(buf, sizeof buf, " tick %lu | fatia: resta %u de %u | trace %s%s ",
-                  pit_ticks(), left, sched_quantum(), tr, out);
+                  timer_ticks(), left, sched_quantum(), tr, out);
     else
-        ksnprintf(buf, sizeof buf, " tick %lu | CPU ociosa | trace %s%s ", pit_ticks(), tr, out);
+        ksnprintf(buf, sizeof buf, " tick %lu | CPU ociosa | trace %s%s ", timer_ticks(), tr, out);
 
     vga_fill_row(SEP_ROW, 0xC4, COLOR_SEP);     /* 0xC4 = linha horizontal na CP437 */
     vga_write_at(SEP_ROW, 2, " log ", COLOR_SEP, 0);

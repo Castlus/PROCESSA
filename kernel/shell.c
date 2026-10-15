@@ -3,7 +3,7 @@
 #include "shell.h"
 #include "drivers/ata.h"
 #include "drivers/console.h"
-#include "drivers/pit.h"
+#include "drivers/timer.h"
 #include "fs/procfs.h"
 #include "loader/loader.h"
 #include "mm/pmm.h"
@@ -43,7 +43,7 @@ static void cmd_help(void)
                   "  trace on|off   registra cada troca de contexto no log\n"
                   "  saida on|off   mostra/esconde a saída dos processos na tela\n"
                   "  quantum <n>    fatia de tempo, em ticks do timer (1-100)\n"
-                  "  freq <hz>      frequência do timer PIT (19-1000 Hz)\n"
+                  "  freq <hz>      frequência do timer (19-1000 Hz)\n"
                   "  mem            memória física em uso\n"
                   "  limpar         limpa o log\n");
 }
@@ -186,20 +186,24 @@ static void cmd_quantum(const char *arg)
     }
     sched_set_quantum((uint32_t)n);
     kprintf("[sched] quantum = %ld ticks = %lu ms por fatia\n", n,
-            (uint64_t)n * 1000 / pit_frequency());
+            (uint64_t)n * 1000 / timer_frequency());
 }
 
 static void cmd_freq(const char *arg)
 {
     long hz = str_to_long(arg);
-    if (hz < PIT_MIN_HZ || hz > PIT_MAX_HZ) {
+    if (hz < TIMER_MIN_HZ || hz > TIMER_MAX_HZ) {
         kprintf_color(COLOR_ERROR, "uso: freq <%d-%d>   (atual: %u Hz)\n",
-                      PIT_MIN_HZ, PIT_MAX_HZ, pit_frequency());
+                      TIMER_MIN_HZ, TIMER_MAX_HZ, timer_frequency());
         return;
     }
-    pit_set_frequency((uint32_t)hz);
-    kprintf("[timer] PIT reprogramado: %u Hz (divisor %u), tick a cada %u us\n",
-            pit_frequency(), pit_divisor(), 1000000 / pit_frequency());
+    timer_set_frequency((uint32_t)hz);
+    if (timer_is_lapic())
+        kprintf("[timer] timer do APIC reprogramado: %u Hz, tick a cada %u us\n",
+                timer_frequency(), 1000000 / timer_frequency());
+    else
+        kprintf("[timer] PIT reprogramado: %u Hz (divisor %u), tick a cada %u us\n",
+                timer_frequency(), pit_divisor(), 1000000 / timer_frequency());
 }
 
 static void cmd_mem(void)

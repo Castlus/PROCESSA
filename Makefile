@@ -3,10 +3,13 @@
 #  processos pela interrupcao do timer. Tudo do zero: sem libc, sem
 #  bootloader pronto, sem bibliotecas.
 #
-#  make          gera build/processa.img
+#  make          gera build/processa.img (boot BIOS) e build/usb/ (boot UEFI)
 #  make run      roda no QEMU (janela + log serial no terminal)
 #  make test     roda sem janela por 20 s e mostra o log serial
+#  make run-uefi roda no QEMU com firmware UEFI, dando boot pela pasta build/usb
 #  make clean    apaga build/
+#
+#  Pendrive (UEFI): formate em FAT32 e copie o CONTEUDO de build/usb para ele.
 #
 #  Programa novo: crie user/<nome>.c e rode "make"; ele entra no disco
 #  como <nome>.elf (no PROCESSA: "run <nome>.elf").
@@ -33,8 +36,15 @@ COMMON_CFLAGS := -std=gnu11 -O2 -Wall -Wextra \
 	-fno-asynchronous-unwind-tables -fno-unwind-tables \
 	-fno-tree-loop-distribute-patterns
 
-KCFLAGS := $(COMMON_CFLAGS) -mno-red-zone -mcmodel=small -Ikernel
+KCFLAGS := $(COMMON_CFLAGS) -mno-red-zone -mcmodel=small -Ikernel -Iboot
 UCFLAGS := $(COMMON_CFLAGS) -Iuser/include
+
+# Carregador UEFI: um executavel PE32+ (formato do Windows), entao usa o
+# gcc do mingw. Tambem sem nenhuma biblioteca.
+EFICC      := x86_64-w64-mingw32-gcc
+EFI_CFLAGS := -std=gnu11 -O2 -Wall -Wextra -ffreestanding -nostdlib -fno-builtin \
+	-fno-stack-protector -fno-stack-check -mno-stack-arg-probe -mno-red-zone \
+	-mgeneral-regs-only -fno-tree-loop-distribute-patterns -Iboot
 
 LDFLAGS := -nostdlib -static --build-id=none -z max-page-size=0x1000 -z noexecstack \
 	$(shell $(LD) --help 2>/dev/null | grep -q no-warn-rwx-segments && echo --no-warn-rwx-segments)
@@ -59,7 +69,9 @@ NOVOS_PROGS := $(NOVOS_C:user/%.c=$(DISK)/%.elf)
 ARQUIVOS ?=
 $(foreach f,$(ARQUIVOS),$(if $(wildcard $(f)),,$(error ARQUIVOS: '$(f)' nao existe)))
 
-all: $(IMG)
+USB := $(B)/usb
+
+all: $(IMG) usb
 
 $(B)/boot.bin: boot/boot.asm
 	@mkdir -p $(dir $@)
@@ -78,6 +90,18 @@ $(B)/kernel.elf: $(KOBJ) kernel/linker.ld
 
 $(B)/kernel.bin: $(B)/kernel.elf
 	$(OBJCOPY) -O binary $< $@
+
+# o mesmo kernel, ligado em 0x100000 para o boot UEFI
+$(B)/kernel-uefi.elf: $(KOBJ) kernel/linker.ld
+	$(LD) $(LDFLAGS) --defsym=KERNEL_BASE=0x100000 -T kernel/linker.ld -o $@ $(KOBJ)
+
+$(B)/kernel-uefi.bin: $(B)/kernel-uefi.elf
+	$(OBJCOPY) -O binary $< $@
+
+$(B)/BOOTX64.EFI: boot/uefi.c boot/bootinfo.h
+	@mkdir -p $(dir $@)
+	$(EFICC) $(EFI_CFLAGS) -c boot/uefi.c -o $(B)/uefi.o
+	$(EFICC) -nostdlib -shared -Wl,-dll -Wl,--subsystem,10 -e efi_main -o $@ $(B)/uefi.o
 
 $(B)/user/%.o: user/%.c
 	@mkdir -p $(dir $@)
@@ -120,8 +144,27 @@ $(IMG): $(B)/boot.bin $(B)/kernel.bin $(PROGRAMS) $(NOVOS_PROGS) $(ARQUIVOS) $(B
 	$(PYTHON) tools/mkdisk.py $@ $(B)/boot.bin $(B)/kernel.bin $(addprefix --auto ,$(PROGRAMS)) \
 		$(NOVOS_PROGS) $(ARQUIVOS)
 
+# Conteudo do pendrive para o boot UEFI (pendrive em FAT32):
+#   EFI/BOOT/BOOTX64.EFI     o carregador (o firmware procura este nome)
+#   PROCESSA/KERNEL.BIN      o kernel
+#   PROCESSA/INICIO/         programas que iniciam no boot
+#   PROCESSA/PROGRAMAS/      os outros (rode com "run <nome>")
+usb: $(B)/BOOTX64.EFI $(B)/kernel-uefi.bin $(PROGRAMS) $(NOVOS_PROGS) $(ARQUIVOS)
+	rm -rf $(USB)
+	mkdir -p $(USB)/EFI/BOOT $(USB)/PROCESSA/INICIO $(USB)/PROCESSA/PROGRAMAS
+	cp $(B)/BOOTX64.EFI $(USB)/EFI/BOOT/BOOTX64.EFI
+	cp $(B)/kernel-uefi.bin $(USB)/PROCESSA/KERNEL.BIN
+	cp $(PROGRAMS) $(USB)/PROCESSA/INICIO/
+	$(if $(strip $(NOVOS_PROGS) $(ARQUIVOS)),cp $(NOVOS_PROGS) $(ARQUIVOS) $(USB)/PROCESSA/PROGRAMAS/)
+
 # ---------------- execucao ----------------
 QEMU_FLAGS := -m 128M -drive format=raw,file=$(IMG),if=ide -no-reboot
+
+# UEFI: firmware OVMF + a pasta build/usb vista como um pendrive USB FAT
+OVMF       := /usr/share/ovmf/OVMF.fd
+QEMU_UEFI  := -m 256M -machine q35 -bios $(OVMF) -nodefaults -vga std -no-reboot \
+	-drive if=none,id=stick,format=raw,readonly=on,file=fat:$(USB) \
+	-device qemu-xhci -device usb-storage,drive=stick
 
 run: $(IMG)
 	$(QEMU) $(QEMU_FLAGS) -serial stdio
@@ -129,10 +172,16 @@ run: $(IMG)
 test: $(IMG)
 	-timeout 20 $(QEMU) $(QEMU_FLAGS) -display none -serial stdio
 
+run-uefi: usb
+	$(QEMU) $(QEMU_UEFI) -serial stdio
+
+test-uefi: usb
+	-timeout 30 $(QEMU) $(QEMU_UEFI) -display none -serial stdio
+
 clean:
 	rm -rf $(B)
 
-.PHONY: all run test clean FORCE
+.PHONY: all usb run test run-uefi test-uefi clean FORCE
 .SECONDARY:
 
 -include $(shell find $(B) -name '*.d' 2>/dev/null)

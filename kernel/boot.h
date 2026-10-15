@@ -2,25 +2,26 @@
 #define BOOT_H
 
 #include "types.h"
+#include "bootinfo.h"       /* boot/bootinfo.h: o que o carregador UEFI entrega */
 
-/* Recado que o setor de boot (boot/boot.asm) deixa em 0x600 para o kernel. */
-#define BOOTINFO_ADDR  0x600
-#define BOOTINFO_MAGIC 0x544F4250       /* "PBOT" */
+/* Como a maquina deu boot. O kernel aceita dois caminhos:
+ *   BIOS: boot/boot.asm deixa um recado em 0x600 (struct bios_bootinfo);
+ *   UEFI: boot/uefi.c passa um ponteiro em RDI (struct uefi_bootinfo). */
+enum boot_kind {
+    BOOT_BIOS,
+    BOOT_UEFI,
+};
 
-struct bootinfo {
-    uint32_t magic;
-    uint32_t ramdisk_sectors;   /* setores do PROCFS que a BIOS copiou para a RAM */
-    uint32_t ramdisk_addr;      /* onde esta a copia (0x30000) */
-    uint8_t  boot_drive;        /* numero do disco na BIOS: 0x80 = HD/pendrive */
-} __attribute__((packed));
+struct boot_params {
+    enum boot_kind kind;
+    const uint8_t *ramdisk;         /* copia do PROCFS na memoria (ou NULL) */
+    uint32_t ramdisk_sectors;
+    uint8_t bios_drive;             /* BIOS: numero do disco de boot */
+    const struct uefi_bootinfo *uefi;   /* UEFI: tela, mapa de memoria, TSC */
+};
 
-static inline const struct bootinfo *bootinfo(void)
-{
-    const struct bootinfo *b;
-    /* o "asm" so esconde do gcc que o ponteiro vem de um endereco fixo
-     * baixo (senao ele avisa como se fosse um ponteiro nulo) */
-    __asm__ ("" : "=r"(b) : "0"((uintptr_t)BOOTINFO_ADDR));
-    return b->magic == BOOTINFO_MAGIC ? b : NULL;
-}
+extern struct boot_params boot;
+
+void boot_parse(uint64_t arg);
 
 #endif
