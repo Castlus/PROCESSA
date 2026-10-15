@@ -19,14 +19,18 @@
  * ===================================================================== */
 #include "proc/sched.h"
 #include "arch/gdt.h"
+#include "drivers/console.h"
 #include "drivers/pit.h"
+#include "lib/printf.h"
 
 static struct process *current;
 static bool need_resched;
+static const char *resched_reason = "";
 static uint32_t quantum = DEFAULT_QUANTUM;
 static uint32_t slice_left;
 static uint64_t uptime_us;
 static uint64_t total_switches;
+static bool trace;
 
 void sched_init(void)
 {
@@ -66,19 +70,50 @@ void sched_tick(void)
     }
 
     if (current->pid == 0) {
-        if (any_ready())
+        if (any_ready()) {
             need_resched = true;        /* CPU ociosa e alguem quer rodar */
+            resched_reason = "CPU estava ociosa";
+        }
     } else if (slice_left <= 1) {
         need_resched = true;            /* acabou a fatia de tempo: PREEMPCAO */
+        resched_reason = "quantum esgotado";
     } else {
         slice_left--;
     }
+}
+
+/* Por que o processo anterior saiu da CPU (aparece no trace). */
+static const char *switch_reason(const struct process *prev)
+{
+    if (prev->state == P_DEAD) {
+        if (prev->exit_code == -9)
+            return "encerrado por kill";
+        if (prev->exit_code == -1)
+            return "encerrado por exceção";
+        return "terminou com exit";
+    }
+    if (prev->state == P_SLEEPING)
+        return "dormiu com sleep";
+    return resched_reason;
+}
+
+static void trace_switch(const struct process *prev, const struct process *next, const char *why)
+{
+    kprintf_color(COLOR_TRACE, "[troca %lu | tick %lu] %d:%.14s -> %d:%.14s (%s)\n",
+                  total_switches, pit_ticks(), prev->pid, prev->name, next->pid, next->name, why);
+    if (prev->state == P_DEAD)
+        kprintf_color(COLOR_TRACE, "   %d liberado | %d retoma em rip=%lx, CR3=%08lx\n",
+                      prev->pid, next->pid, next->ctx->rip, next->cr3);
+    else
+        kprintf_color(COLOR_TRACE, "   %d pausado em rip=%lx | %d retoma em rip=%lx, CR3=%08lx\n",
+                      prev->pid, prev->ctx->rip, next->pid, next->ctx->rip, next->cr3);
 }
 
 static void schedule(void)
 {
     struct process *prev = current;
     struct process *next = NULL;
+    const char *why = switch_reason(prev);
 
     need_resched = false;
     proc_reap(prev);
@@ -102,6 +137,8 @@ static void schedule(void)
     if (next != prev) {
         total_switches++;
         next->switches++;
+        if (trace)
+            trace_switch(prev, next, why);
     }
     current = next;
 
@@ -121,6 +158,7 @@ uint64_t sched_switch(void)
 void sched_yield(void)
 {
     need_resched = true;
+    resched_reason = "cedeu a CPU com yield";
 }
 
 void sched_sleep_ms(uint64_t ms)
@@ -135,6 +173,21 @@ void sched_set_quantum(uint32_t ticks)
     quantum = ticks ? ticks : 1;
 }
 
-uint32_t sched_quantum(void)   { return quantum; }
-uint64_t sched_switches(void)  { return total_switches; }
-uint64_t sched_uptime_ms(void) { return uptime_us / 1000; }
+/* Ordem em que o round-robin vai escolher os processos PRONTOS. */
+int sched_ready_queue(int *pids, int max)
+{
+    int n = 0, start = proc_index(current);
+    for (int i = 1; i <= MAX_PROCS && n < max; i++) {
+        struct process *p = proc_slot((start + i) % MAX_PROCS);
+        if (p->pid != 0 && p->state == P_READY)
+            pids[n++] = p->pid;
+    }
+    return n;
+}
+
+void sched_set_trace(bool on)     { trace = on; }
+bool sched_trace(void)            { return trace; }
+uint32_t sched_quantum(void)      { return quantum; }
+uint32_t sched_slice_left(void)   { return current->pid == 0 ? 0 : slice_left; }
+uint64_t sched_switches(void)     { return total_switches; }
+uint64_t sched_uptime_ms(void)    { return uptime_us / 1000; }

@@ -18,7 +18,12 @@ void sched_sleep_ms(uint64_t ms);
 
 void sched_set_quantum(uint32_t ticks);
 uint32_t sched_quantum(void);
+uint32_t sched_slice_left(void);        /* ticks que restam na fatia atual */
 uint64_t sched_switches(void);
 uint64_t sched_uptime_ms(void);
+int sched_ready_queue(int *pids, int max);
+
+void sched_set_trace(bool on);          /* registra cada troca no log */
+bool sched_trace(void);
 
 #endif

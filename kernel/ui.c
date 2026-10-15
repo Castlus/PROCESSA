@@ -5,7 +5,9 @@
 #include "drivers/pit.h"
 #include "proc/process.h"
 #include "proc/sched.h"
+#include "proc/syscall.h"
 #include "lib/printf.h"
+#include "lib/string.h"
 
 #define STATUS_ROW 0
 #define HEADER_ROW 1
@@ -26,6 +28,26 @@ static void draw_status(void)
               ms / 1000, (ms / 100) % 10, pit_frequency(), sched_quantum(),
               sched_switches(), p->pid, p->name);
     vga_write_at(STATUS_ROW, 0, buf, COLOR_STATUS, VGA_COLS);
+}
+
+/* Linha separadora: mostra o driver do timer trabalhando (ticks e a
+ * fatia de tempo que ainda resta ao processo na CPU). */
+static void draw_timer(void)
+{
+    char buf[80];
+    uint32_t left = sched_slice_left();
+    const char *tr = sched_trace() ? "on" : "off";
+    const char *out = syscall_output() ? "" : " | saida off";
+
+    if (left)
+        ksnprintf(buf, sizeof buf, " tick %lu | fatia: resta %u de %u | trace %s%s ",
+                  pit_ticks(), left, sched_quantum(), tr, out);
+    else
+        ksnprintf(buf, sizeof buf, " tick %lu | CPU ociosa | trace %s%s ", pit_ticks(), tr, out);
+
+    vga_fill_row(SEP_ROW, 0xC4, COLOR_SEP);     /* 0xC4 = linha horizontal na CP437 */
+    vga_write_at(SEP_ROW, 2, " log ", COLOR_SEP, 0);
+    vga_write_at(SEP_ROW, VGA_COLS - 2 - (int)strlen(buf), buf, COLOR_KERNEL, 0);
 }
 
 void ui_refresh(void)
@@ -65,18 +87,18 @@ void ui_init(void)
     ksnprintf(buf, sizeof buf, ROW_FMT, ' ', "PID", "NOME", "FORMATO", "ESTADO",
               "CPU(ms)", "TROCAS", "MEM(KB)", "CR3");
     vga_write_at(HEADER_ROW, 0, buf, COLOR_HEADER, VGA_COLS);
-    vga_fill_row(SEP_ROW, 0xC4, COLOR_SEP);     /* 0xC4 = linha horizontal na CP437 */
-    vga_write_at(SEP_ROW, 2, " log do kernel e saida dos processos ", COLOR_SEP, 0);
     draw_status();
+    draw_timer();
     ui_refresh();
 }
 
 void ui_tick(void)
 {
     uint64_t now = sched_uptime_ms();
-    if (now - last_refresh_ms >= 100) {         /* painel: 10x por segundo */
+    if (now - last_refresh_ms >= 20) {          /* painel: ate 50x por segundo */
         last_refresh_ms = now;
         draw_status();
+        draw_timer();
         ui_refresh();
     }
 }
