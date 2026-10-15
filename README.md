@@ -47,6 +47,23 @@ winget install SoftwareFreedomConservancy.QEMU       # uma vez só
 
 Outros alvos: `make test` roda 20 s sem janela e mostra o log serial; `make clean` apaga `build/`.
 
+### Opção C: num PC de verdade, por pendrive
+
+A mesma imagem dá boot direto num computador, sem sistema operacional nenhum por baixo.
+
+1. **Grave `build\processa.img` no pendrive** com o [Rufus](https://rufus.ie) (ele detecta a imagem e grava em modo DD) ou com o balenaEtcher.
+   - **Isso apaga tudo o que estiver no pendrive.**
+   - Depois da gravação, o Windows pode pedir para "formatar o disco": **cancele**.
+2. **Na configuração da BIOS do PC, habilite o boot "Legacy" / "CSM".** Normalmente é preciso desligar o Secure Boot antes. O setor de boot do PROCESSA é do tipo BIOS (MBR), não UEFI.
+3. **Ligue pelo menu de boot** (F12, F9, F8 ou Esc, conforme a marca) e escolha o pendrive na entrada **sem** "UEFI:" no nome.
+
+**Como os programas são lidos do pendrive:**
+- O kernel não tem driver USB (um controlador xHCI + armazenamento USB do zero é um projeto à parte). Por isso o setor de boot pede à BIOS, que sabe ler o pendrive, para copiar a área de arquivos (PROCFS) para a memória em `0x30000`.
+- O kernel procura um disco ATA. Se não encontrar, ou se o PROCFS não estiver nele, usa essa cópia. O log do boot mostra qual fonte foi usada.
+- Cabem até 384 KiB de arquivos.
+
+**Se o chip do timer estiver desligado:** alguns chipsets modernos desligam o PIT. Nesse caso o kernel avisa em vermelho no boot, porque sem ele os processos não se alternam.
+
 ### Escrevendo um programa novo
 
 Crie um arquivo `.c` em `user/` e compile normalmente. Ele entra no disco sozinho como `<nome>.elf`:
@@ -145,7 +162,7 @@ a cada IRQ0 do timer (10 ms):
 
 | Setor (LBA) | Conteúdo |
 |---|---|
-| 0 | setor de boot |
+| 0 | setor de boot, com uma partição ativa que cobre o resto do disco (para a BIOS aceitar dar boot pelo pendrive) |
 | 1 | kernel |
 | 2048 | diretório PROCFS |
 | 2056+ | arquivos |
