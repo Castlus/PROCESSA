@@ -47,7 +47,38 @@ winget install SoftwareFreedomConservancy.QEMU       # uma vez só
 
 Outros alvos: `make test` roda 20 s sem janela e mostra o log serial; `make clean` apaga `build/`.
 
-### Colocando outros arquivos no disco
+### Escrevendo um programa novo
+
+Crie um arquivo `.c` em `user/` e compile normalmente. Ele entra no disco sozinho como `<nome>.elf`:
+
+```c
+/* user/oi.c */
+#include "processa.h"
+
+int main(void)
+{
+    printf("oi! sou o PID %ld\n", sys_getpid());
+    for (int i = 1; i <= 5; i++) {
+        printf("volta %d de 5\n", i);
+        sys_sleep(1000);
+    }
+    return 0;
+}
+```
+
+```powershell
+.\build.ps1        # ou: make
+.\run.ps1          # no PROCESSA: run oi.elf
+```
+
+O programa só tem o que está em [user/include/processa.h](user/include/processa.h):
+
+- `printf`, `print`, `strlen`, `memset` e `memcpy`;
+- as chamadas de sistema `sys_getpid`, `sys_sleep`, `sys_uptime`, `sys_yield` e `sys_exit`.
+
+Ele não lê o teclado, não usa ponto flutuante e não tem `malloc`.
+
+### Colocando arquivos prontos no disco
 
 Para colocar qualquer arquivo no disco virtual, use a variável `ARQUIVOS`:
 
