@@ -25,8 +25,8 @@ Também tem:
 
 - **Isolamento de memória:** cada processo tem a sua própria tabela de páginas e roda em anel 3 (modo usuário).
 - **Chamadas de sistema** via `int 0x80`.
-- **Painel ao vivo** com os PCBs.
-- **Shell** com os comandos `ls`, `run`, `kill`, `ps`, `quantum`, `freq` e `mem`.
+- **Painel ao vivo** com os PCBs, o tick do timer e a fatia de tempo restante do processo na CPU.
+- **Shell** com os comandos `ls`, `run`, `kill`, `ps`, `info`, `trace`, `quantum`, `freq` e `mem`.
 
 ## Como compilar e rodar
 
@@ -67,7 +67,10 @@ make run ARQUIVOS="extras/prog.elf extras/outro.bin"        # WSL
 | `ls` | lista os arquivos do disco e o formato detectado de cada um |
 | `run <arquivo>` | carrega o arquivo do disco e cria um processo novo (pode repetir) |
 | `kill <pid>` | encerra um processo |
-| `ps` | imprime a tabela de processos no log |
+| `ps` | imprime a tabela de processos e a fila de prontos (ordem do round-robin) |
+| `info <pid>` | mostra o PCB inteiro: registradores salvos, pilha de kernel, CR3 e faixas de memória mapeadas |
+| `trace on\|off` | registra cada troca de contexto: tick, quem saiu, quem entrou, o motivo, onde parou e onde retoma (rip) |
+| `saida on\|off` | esconde/mostra a saída dos processos na tela (eles continuam rodando; o log serial recebe tudo) |
 | `quantum <n>` | muda a fatia de tempo (em ticks do timer) |
 | `freq <hz>` | reprograma o chip do timer (19 a 1000 Hz) |
 | `mem` | mostra a memória física em uso |
